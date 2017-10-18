@@ -13,7 +13,7 @@ Linux python tool to mass copy data to USB sticks in an mostly automated way
 - activate virtual environment  
 `$ source masscopy-env/bin/activate`
 - setup python packages  
-`(masscopy-env) $ pip install -r pip_requirements.txt`
+`(masscopy-env) $ pip3 install -r pip_requirements.txt`
 
 ## Usage
 - start main script with the source folder  

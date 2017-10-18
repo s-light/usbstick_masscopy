@@ -16,8 +16,11 @@ import time
 import signal
 import argparse
 # import re
+import json
 import readline
-# import json
+
+from configdict import ConfigDict
+from usbstick import USBStick
 
 
 ##########################################
@@ -25,10 +28,93 @@ import readline
 class SystemManager(object):
     """docstring for SystemManager."""
 
-    def __init__(self, arg):
-        """Setup SystemManager."""
+    default_config = {
+        'system': {
+            'update_interval': 500,
+        },
+        'source_folder': ""
+    }
+
+    path_script = os.path.dirname(os.path.abspath(__file__))
+
+    def __init__(self, filename, verbose=False):
+        """Init SystemManager things."""
         super(SystemManager, self).__init__()
-        self.arg = arg
+
+        # check for filename
+        if not os.path.exists(filename):
+            # print(
+            #     "filename does not exists.. "
+            #     "so we creating a hopefully valid path"
+            # )
+            # remember config file name
+            config_name = os.path.basename(filename)
+            # create path on base of script dir.
+            # path_to_config = os.path.join(self.path_script, "config")
+            path_to_config = self.path_script
+            filename = os.path.join(path_to_config, config_name)
+
+        # read config file:
+        self.my_config = ConfigDict(self.default_config, filename)
+        # print("my_config.config: {}".format(self.my_config.config))
+        self.config = self.my_config.config
+        # print("config: {}".format(self.config))
+
+        self.verbose = verbose
+        if self.verbose:
+            print("config: {}".format(
+                json.dumps(
+                    self.config,
+                    sort_keys=True,
+                    indent=4,
+                    separators=(',', ': ')
+                )
+            ))
+
+        # generate absolute path to config files
+        path_to_config = os.path.dirname(filename)
+        self.config["path_to_config"] = path_to_config
+
+        if self.verbose:
+            print("--> finished.")
+            print("config: {}".format(self.config))
+
+    def start_webinterface(arg):
+        """Start web interface."""
+        pass
+
+    def stop_webinterface(arg):
+        """Stop web interface."""
+        pass
+
+
+##########################################
+
+##########################################
+def handle_userinput(user_input):
+    """Handle userinput in interactive mode."""
+    global flag_run
+    if user_input == "q":
+        flag_run = False
+        print("stop script.")
+    elif user_input.startswith("source"):
+        # try to extract repeate_snake
+        start_index = user_input.find(':')
+        if start_index > -1:
+            source_folder_new = user_input[start_index+1:]
+            if os.path.exists(source_folder_new):
+                my_systemmanager.config['source_folder'] = (
+                    source_folder_new
+                )
+                print("set source folder to '{}'.".format(
+                    my_systemmanager.config['source_folder']
+                ))
+            else:
+                print("input not a valid path.")
+    elif user_input.startswith("sc"):
+        # try to extract universe value
+            print("\nwrite config.")
+            my_systemmanager.my_config.write_to_file()
 
 
 ##########################################
@@ -99,10 +185,11 @@ if __name__ == '__main__':
     my_systemmanager = SystemManager(args.config, args.verbose)
 
     # overwritte with pattern name from comandline
-    # if "pattern" in args:
-    #     my_config.config['system']['pattern_name'] = args.pattern
+    if "source" in args:
+        if args.source != source_default:
+            my_systemmanager.config['source_folder'] = args.source
 
-    my_systemmanager.start()
+    my_systemmanager.start_webinterface()
 
     if args.interactive:
         # wait for user to hit key.
@@ -112,10 +199,13 @@ if __name__ == '__main__':
             message = (
                 "\n" +
                 42*'*' + "\n"
-                "  's': stop\n"
-                # "set option: \n"
+                # "  's': stop\n"
+                "command: \n"
                 # "  'ui': update interval "
                 # "'ui:{update_frequency}Hz)'\n"
+                "  'source': update source folder "
+                "'source:~/StickDataToCopy/'\n"
+                "  'sc': save config 'sc'\n"
                 "Ctrl+C or 'q' to stop script\n" +
                 42*'*' + "\n"
                 "\n"
@@ -147,8 +237,7 @@ if __name__ == '__main__':
             else:
                 try:
                     if len(user_input) > 0:
-                        print("TODO: handle userinput")
-                        # handle_userinput(user_input)
+                        handle_userinput(user_input)
                 except Exception as e:
                     print("unknown error: {}".format(e))
                     flag_run = False
@@ -163,8 +252,9 @@ if __name__ == '__main__':
         except KeyboardInterrupt:
             print("\nstop script.")
             flag_run = False
+
     # blocks untill thread has joined.
-    my_systemmanager.stop()
+    my_systemmanager.stop_webinterface()
 
     # if args.interactive:
     #     # as last thing we save the current configuration.

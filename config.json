@@ -1,0 +1,7 @@
+{
+    "path_to_config": ".",
+    "source_folder": "~/mydata/temp/StickDataToCopy/",
+    "system": {
+        "update_interval": 500
+    }
+}
