@@ -35,6 +35,7 @@ class SystemManager(object):
         'mount_base': "~/ustick_copy/",
         'disc_label': "SOMMER",
         'port_map': {},
+        'stick_messages': [],
     }
 
     path_script = os.path.dirname(os.path.abspath(__file__))
@@ -96,6 +97,15 @@ class SystemManager(object):
             target=self.device_handler
         )
 
+        self.queue_sticks = queue.Queue()
+        # self.stick_messages = self.config['stick_messages']
+        self.stick_messages = {}
+        for device_path, port_number in self.port_map.items():
+            self.stick_messages[port_number] = '?'
+        self.stick_messages_thread = threading.Thread(
+            target=self.stick_messages_handler
+        )
+
         if self.verbose:
             print("--> finished.")
             print("config: {}".format(self.config))
@@ -107,15 +117,20 @@ class SystemManager(object):
     def start(self):
         """Start things."""
         self.device_handler_thread.start()
+        self.stick_messages_thread.start()
         self.observer.start()
         print("started system in {} mode".format(self.mode))
 
     def stop(self):
         """Stop things."""
+        # if self.observer.is_alive():
         self.observer.stop()
         self.queue_devices.put(None)
         if self.device_handler_thread.is_alive():
             self.device_handler_thread.join()
+        self.queue_sticks.put(None)
+        if self.stick_messages_thread.is_alive():
+            self.stick_messages_thread.join()
         for device_path, stick in self.stick_dict.items():
             if stick.is_alive():
                 stick.join()
@@ -127,16 +142,16 @@ class SystemManager(object):
         # print('background event {0.action}: {0.device_path}'.format(device))
         if 'ID_BUS' in device:
             if device['ID_BUS'] == 'usb':
-                print("-"*42)
-                print("event: {} '{}'".format(
-                    device.action,
-                    device.device_path
-                ))
+                # print("-"*42)
+                # print("event: {} '{}'".format(
+                #     device.action,
+                #     device.device_path
+                # ))
                 # device_path
                 self.queue_devices.put(
                     (device.action, device.device_path)
                 )
-                print("-"*42)
+                # print("-"*42)
 
     def device_handler(self):
         """Handle Device Events."""
@@ -157,7 +172,7 @@ class SystemManager(object):
                 config = {}
                 config['disc_label'] = self.config['disc_label']
                 config['port_map'] = self.port_map
-                new_stick = USBStick(device_path, config)
+                new_stick = USBStick(device_path, config, self.queue_sticks)
                 self.stick_dict[device_path] = new_stick
                 if self.mode == 'copy':
                     new_stick.start()
@@ -169,15 +184,28 @@ class SystemManager(object):
                 else:
                     print("unknown mode: {}".format(self.mode))
             elif action == 'remove':
-                if self.stick_dict[device_path].is_alive():
+                if device_path in self.stick_dict:
+                    self.queue_sticks.put(
+                        (self.stick_dict[device_path].port_number, '-')
+                    )
+                    if self.stick_dict[device_path].is_alive():
+                        print(
+                            "attention we have to wait "
+                            "for a device after remove!\n"
+                            "THIS SHOULD NEVER HAPPEN!!!! "
+                            "YOU HAVE UNPLUGGED THE STICK "
+                            "BEFORE IT WAS UNMOUNTED\n"
+                            "device_path: {}".format(device_path)
+                        )
+                        self.stick_dict[device_path].join()
+                    del self.stick_dict[device_path]
+                else:
                     print(
-                        "attention we have to wait for a device after remove!"
-                        "THIS SHOULD NEVER HAPPEN!!!! "
-                        "YOU HAVE UNPLUGGED THE STICK BEFORE IT WAS UNMOUNTED"
+                        "remove event - "
+                        "but we have no device for this in our database. "
+                        ""
                         "device_path: {}".format(device_path)
                     )
-                    self.stick_dict[device_path].join()
-                del self.stick_dict[device_path]
             self.queue_devices.task_done()
 
     def start_copy(self):
@@ -197,6 +225,8 @@ class SystemManager(object):
         if self.mode is None:
             # clean up
             self.port_map = {}
+            self.stick_messages = {}
+            self.queue_sticks.put('')
             self.mode = 'mapping'
             self.start()
         else:
@@ -208,17 +238,41 @@ class SystemManager(object):
         print("port_map:")
         for device_path, port_number in self.port_map.items():
             print("{:>3} - {}".format(port_number, device_path))
+            self.stick_messages[port_number] = '-'
         print("~"*42)
         # store port mapping in config
         self.config['port_map'] = self.port_map
+        self.config['stick_messages'] = self.stick_messages
+        self.queue_sticks.put('')
 
-    def show_stick_status(self, device_path, message):
-        """Show message for a device with port_number."""
-        port_number = self.port_map[device_path]
-        print("Port {}: {}".format(
-            port_number,
-            message
-        ))
+    def stick_messages_show(self):
+        """Show messages for all sticks."""
+        # print all messages
+        text_header = "|"
+        text_messages = "|"
+        for port_number, message in sorted(self.stick_messages.items()):
+            text_header += "{:^10}|".format(port_number)
+            text_messages += "{:^10}|".format(message)
+
+        print("\n" + text_header + "\n" + text_messages + "\n")
+
+    def stick_messages_handler(self):
+        """Handle queued message from sticks."""
+        print("stick_messages_handler thread started.")
+        while True:
+            queue_item = self.queue_sticks.get()
+            # print(queue_item)
+            print("queue_item received")
+            if queue_item is None:
+                break
+            elif isinstance(queue_item, tuple):
+                # queue_item is valid so we handle it:
+                port_number, message = queue_item
+                if port_number >= 0:
+                    self.stick_messages[port_number] = message
+            self.stick_messages_show()
+        print("stick_messages_handler thread stopped.")
+
 
 ##########################################
 
@@ -234,10 +288,17 @@ def handle_userinput(user_input):
         my_systemmanager.start_mapping()
     elif user_input.startswith("done"):
         my_systemmanager.stop_mapping()
+    elif user_input.startswith("show"):
+        print("port_map:")
+        for device_path, port_number in my_systemmanager.port_map.items():
+            print("{:>3} - {}".format(port_number, device_path))
+        print("~"*42)
+        my_systemmanager.stick_messages_show()
+
     elif user_input.startswith("start"):
-        my_systemmanager.start()
+        my_systemmanager.start_copy()
     elif user_input.startswith("stop"):
-        my_systemmanager.stop()
+        my_systemmanager.stop_copy()
     elif user_input.startswith("source"):
         # try to extract repeate_snake
         start_index = user_input.find(':')
@@ -341,6 +402,7 @@ if __name__ == '__main__':
                 "commands: \n"
                 "  'map': start mapping mode \n"
                 "  'done': stop mapping mode \n"
+                "  'show': show port mapping \n"
                 "  'start': start copy mode \n"
                 "  'stop': stop copy mode \n"
                 "  'source': update source folder "

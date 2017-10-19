@@ -35,7 +35,6 @@ class USBStick(threading.Thread):
         'mount_base': "~/ustick_copy/",
         'disc_label': "NEWLABEL",
         'port_map': {},
-        'port_number': "-1",
     }
 
     def __init__(self, device_path, config, queue=None):
@@ -60,12 +59,12 @@ class USBStick(threading.Thread):
         self.mount_point = None
         self.config = configdict.merge_deep(self.default_config, config)
 
-        if self.get_usb_port_path in self.config['port_map']:
-            self.config['port_number'] = (
-                self.config['port_map'][self.get_usb_port_path]
+        # print(self.config['port_map'])
+        self.port_number = '-1'
+        if self.get_usb_port_path() in self.config['port_map']:
+            self.port_number = (
+                self.config['port_map'][self.get_usb_port_path()]
             )
-        else:
-            self.config['port_number'] = '-1'
 
     def get_usb_port(self):
         """Get USB-Port device."""
@@ -327,14 +326,21 @@ class USBStick(threading.Thread):
 
     def show_port_message(self, message):
         """Show message for a device with port_number."""
-        print("Port {}: {}".format(
-            self.config['port_number'],
-            message
-        ))
+        if self.queue:
+            # queue_item = (self.port_number, message)
+            # print(queue_item)
+            # self.queue.put(queue_item)
+            self.queue.put((self.port_number, message))
+        else:
+            print("Port {}: {}".format(
+                self.port_number,
+                message
+            ))
 
     # thread runner
     def run(self):
         """Auto perform Stick programming."""
+        self.show_port_message("start")
         try:
             # update label
             self.update_label(self.config['disc_label'])
@@ -362,8 +368,8 @@ class USBStick(threading.Thread):
                         raise e
         # done :-)
         # now we have to let the user know
-        print("stick '{}' done".format(self.get_usb_port_id()))
-        self.show_port_message("done.")
+        # print("stick '{}' done".format(self.get_usb_port_id()))
+        self.show_port_message("done")
 
 
 ##########################################
