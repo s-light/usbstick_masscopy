@@ -15,9 +15,11 @@ import time
 # import struct
 import signal
 import argparse
-# import re
+import threading
+import queue
 import json
 import readline
+import pyudev
 
 import configdict
 from usbstick import USBStick
@@ -76,17 +78,92 @@ class SystemManager(object):
         path_to_config = os.path.dirname(filename)
         self.config["path_to_config"] = path_to_config
 
+        self.context = pyudev.Context()
+        self.monitor = pyudev.Monitor.from_netlink(self.context)
+        self.monitor.filter_by('block', device_type="partition")
+        self.observer = pyudev.MonitorObserver(
+            self.monitor,
+            self._even_partition
+        )
+
+        self.stick_dict = {}
+
+        self.queue_devices = queue.Queue()
+
+        self.device_handler_thread = threading.Thread(
+            target=self.device_handler
+        )
+
         if self.verbose:
             print("--> finished.")
             print("config: {}".format(self.config))
 
-    def start_webinterface(arg):
-        """Start web interface."""
-        pass
+    # def __del__(self):
+    #     """Cleanup SystemManager things."""
+    #     super(SystemManager, self).__del__()
 
-    def stop_webinterface(arg):
-        """Stop web interface."""
-        pass
+    def start_device_watching(self):
+        """Start device observer."""
+        self.observer.start()
+
+    def stop_device_watching(self):
+        """Stop device observer."""
+        self.observer.stop()
+
+    def start(self):
+        """Start things."""
+        self.device_handler_thread.start()
+        self.start_device_watching()
+
+    def stop(self):
+        """Stop things."""
+        self.stop_device_watching()
+        self.queue_devices.put(None)
+        if self.device_handler_thread.is_alive():
+            self.device_handler_thread.join()
+        for device_path, stick in self.stick_dict.items():
+            if stick.is_alive():
+                stick.join()
+
+    def _even_partition(self, action, device):
+        """Print partition event."""
+        # print('background event {0.action}: {0.device_path}'.format(device))
+        if 'ID_BUS' in device:
+            if device['ID_BUS'] == 'usb':
+                print("-"*42)
+                print("event: {} '{}'".format(
+                    device.action,
+                    device.device_path
+                ))
+                # device_path
+                self.queue_devices.put(
+                    (device.action, device.device_path)
+                )
+                print("-"*42)
+
+    def device_handler(self):
+        """Handle Device Events."""
+        while True:
+            queue_item = self.queue_devices.get()
+            if queue_item is None:
+                break
+            # queue_item is valid so we handle it:
+            action, device_path = queue_item
+            if action == 'add':
+                new_stick = USBStick(device_path, {})
+                self.stick_dict[device_path] = new_stick
+                new_stick.start()
+            elif action == 'remove':
+                if self.stick_dict[device_path].is_alive():
+                    print(
+                        "attention we have to wait for a device after remove!"
+                        "THIS SHOULD NEVER HAPPEN!!!! "
+                        "YOU HAVE UNPLUGGED THE STICK BEFORE UNMOUNT"
+                        "device_path: {}".format(device_path)
+                    )
+                    self.stick_dict[device_path].join()
+                del self.stick_dict[device_path]
+            self.queue_devices.task_done()
 
 
 ##########################################
@@ -98,6 +175,8 @@ def handle_userinput(user_input):
     if user_input == "q":
         flag_run = False
         print("stop script.")
+    elif user_input.startswith("start"):
+        my_systemmanager.start()
     elif user_input.startswith("source"):
         # try to extract repeate_snake
         start_index = user_input.find(':')
@@ -190,8 +269,6 @@ if __name__ == '__main__':
         if args.source != source_default:
             my_systemmanager.config['source_folder'] = args.source
 
-    my_systemmanager.start_webinterface()
-
     if args.interactive:
         # wait for user to hit key.
         flag_run = True
@@ -200,10 +277,9 @@ if __name__ == '__main__':
             message = (
                 "\n" +
                 42*'*' + "\n"
-                # "  's': stop\n"
-                "command: \n"
-                # "  'ui': update interval "
-                # "'ui:{update_frequency}Hz)'\n"
+                "commands: \n"
+                "  'start': start copy mode \n"
+                "  'stop': stop copy mode \n"
                 "  'source': update source folder "
                 "'source:~/StickDataToCopy/'\n"
                 "  'sc': save config 'sc'\n"
@@ -255,7 +331,9 @@ if __name__ == '__main__':
             flag_run = False
 
     # blocks untill thread has joined.
-    my_systemmanager.stop_webinterface()
+    print("stopping all things")
+    my_systemmanager.stop()
+    print("done. good bye!")
 
     # if args.interactive:
     #     # as last thing we save the current configuration.

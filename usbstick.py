@@ -15,8 +15,10 @@ https://unix.stackexchange.com/questions/399010/change-volume-name-without-sudo-
 import os
 import shutil
 import subprocess
+import threading
 import readline
 import configdict
+import pyudev
 
 
 class Error(Exception):
@@ -25,16 +27,26 @@ class Error(Exception):
     pass
 
 
-class USBStick(object):
+class USBStick(threading.Thread):
     """Class providing abstraction of inserted USBStick."""
 
     default_config = {
+        'source_folder': "~/StickDataToCopy/",
         'mount_base': "~/ustick_copy/",
+        'disc_label': "NEWLABEL",
     }
 
-    def __init__(self, device, config):
+    def __init__(self, device_path, config, queue=None):
         """Create new USBStick Object."""
+        # threading.Thread.__init__(self)
         super(USBStick, self).__init__()
+        self.queue = queue
+
+        self.udev_context = pyudev.Context()
+        device = pyudev.Devices.from_path(
+            self.udev_context,
+            device_path
+        )
         self.device = device
         self.path = self.device.device_path
         # device_path: /sys/devices/pci0000:00/0000:00:1d.0/usb2/
@@ -228,11 +240,13 @@ class USBStick(object):
         return result_string
 
     # copy files
-    def copy_files_to_me(self, src):
+    def copy_files_to_me(self, src=None):
         """Copy Files from source_folder to this Stick."""
         # based on
         # https://docs.python.org/3/library/shutil.html#shutil.copy2
         dst = self.mount_point
+        if src is None:
+            src = self.config['source_folder']
         src_abs = os.path.expanduser(src)
         # first check if device is mounted.
         if os.path.exists(dst):
@@ -302,11 +316,42 @@ class USBStick(object):
             )
         )
 
+    # thread runner
+    def run(self):
+        """Auto perform Stick programming."""
+        try:
+            # update label
+            self.update_label(self.config['disc_label'])
+        except Exception as e:
+            raise e
+        else:
+            try:
+                # mount
+                self.mount()
+                # self.user_mount()
+            except Exception as e:
+                raise e
+            else:
+                try:
+                    # copy files
+                    self.copy_files_to_me()
+                except Exception as e:
+                    raise e
+                finally:
+                    try:
+                        # un-mount
+                        self.unmount()
+                        # self.user_unmount()
+                    except Exception as e:
+                        raise e
+        # done :-)
+        # now we have to let the user know
+        print("stick '{}' done".format(self.get_usb_port_id))
+
 
 ##########################################
 if __name__ == '__main__':
 
-    import pyudev
     context = pyudev.Context()
 
     usbstick_list = []
@@ -317,7 +362,9 @@ if __name__ == '__main__':
     ):
         if 'ID_BUS' in device:
             if device['ID_BUS'] == 'usb':
-                usbstick_list.append(USBStick(device, {}))
+                usbstick_list.append(
+                    USBStick(device.device_path, {})
+                )
 
     print("Sticks", "-"*42)
     for stick in usbstick_list:
