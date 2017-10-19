@@ -31,11 +31,10 @@ class SystemManager(object):
     """docstring for SystemManager."""
 
     default_config = {
-        'system': {
-            'update_interval': 500,
-        },
-        'source_folder': "",
+        'source_folder': "~/StickDataToCopy/",
         'mount_base': "~/ustick_copy/",
+        'disc_label': "SOMMER",
+        'port_map': {},
     }
 
     path_script = os.path.dirname(os.path.abspath(__file__))
@@ -86,10 +85,13 @@ class SystemManager(object):
             self._even_partition
         )
 
+        self.port_map = self.config['port_map']
+
+        self.mode = None
+
         self.stick_dict = {}
 
         self.queue_devices = queue.Queue()
-
         self.device_handler_thread = threading.Thread(
             target=self.device_handler
         )
@@ -102,28 +104,23 @@ class SystemManager(object):
     #     """Cleanup SystemManager things."""
     #     super(SystemManager, self).__del__()
 
-    def start_device_watching(self):
-        """Start device observer."""
-        self.observer.start()
-
-    def stop_device_watching(self):
-        """Stop device observer."""
-        self.observer.stop()
-
     def start(self):
         """Start things."""
         self.device_handler_thread.start()
-        self.start_device_watching()
+        self.observer.start()
+        print("started system in {} mode".format(self.mode))
 
     def stop(self):
         """Stop things."""
-        self.stop_device_watching()
+        self.observer.stop()
         self.queue_devices.put(None)
         if self.device_handler_thread.is_alive():
             self.device_handler_thread.join()
         for device_path, stick in self.stick_dict.items():
             if stick.is_alive():
                 stick.join()
+        print("stopped system from {} mode".format(self.mode))
+        self.mode = None
 
     def _even_partition(self, action, device):
         """Print partition event."""
@@ -150,23 +147,81 @@ class SystemManager(object):
             # queue_item is valid so we handle it:
             action, device_path = queue_item
             if action == 'add':
-                new_stick = USBStick(device_path, {})
+
+                # default_config = {
+                #     'source_folder': "~/StickDataToCopy/",
+                #     'mount_base': "~/ustick_copy/",
+                #     'disc_label': "NEWLABEL",
+                #     'port_map': {},
+                # }
+                config = {}
+                config['disc_label'] = self.config['disc_label']
+                config['port_map'] = self.port_map
+                new_stick = USBStick(device_path, config)
                 self.stick_dict[device_path] = new_stick
-                new_stick.start()
+                if self.mode == 'copy':
+                    new_stick.start()
+                elif self.mode == 'mapping':
+                    port_path = new_stick.get_usb_port_path()
+                    if port_path not in self.port_map:
+                        self.port_map[port_path] = len(self.port_map)
+                        print("new port: {}".format(self.port_map[port_path]))
+                else:
+                    print("unknown mode: {}".format(self.mode))
             elif action == 'remove':
                 if self.stick_dict[device_path].is_alive():
                     print(
                         "attention we have to wait for a device after remove!"
                         "THIS SHOULD NEVER HAPPEN!!!! "
-                        "YOU HAVE UNPLUGGED THE STICK BEFORE UNMOUNT"
+                        "YOU HAVE UNPLUGGED THE STICK BEFORE IT WAS UNMOUNTED"
                         "device_path: {}".format(device_path)
                     )
                     self.stick_dict[device_path].join()
                 del self.stick_dict[device_path]
             self.queue_devices.task_done()
 
+    def start_copy(self):
+        """Start automatic copy mode."""
+        if self.mode is None:
+            self.mode = 'copy'
+            self.start()
+        else:
+            print('system is allready running. stop first.')
+
+    def stop_copy(self):
+        """Stop automatic copy mode."""
+        self.stop()
+
+    def start_mapping(self):
+        """Start mapping mode."""
+        if self.mode is None:
+            # clean up
+            self.port_map = {}
+            self.mode = 'mapping'
+            self.start()
+        else:
+            print('system is allready running. stop first.')
+
+    def stop_mapping(self):
+        """Stop mapping mode."""
+        self.stop()
+        print("port_map:")
+        for device_path, port_number in self.port_map.items():
+            print("{:>3} - {}".format(port_number, device_path))
+        print("~"*42)
+        # store port mapping in config
+        self.config['port_map'] = self.port_map
+
+    def show_stick_status(self, device_path, message):
+        """Show message for a device with port_number."""
+        port_number = self.port_map[device_path]
+        print("Port {}: {}".format(
+            port_number,
+            message
+        ))
 
 ##########################################
+
 
 ##########################################
 def handle_userinput(user_input):
@@ -175,8 +230,14 @@ def handle_userinput(user_input):
     if user_input == "q":
         flag_run = False
         print("stop script.")
+    elif user_input.startswith("map"):
+        my_systemmanager.start_mapping()
+    elif user_input.startswith("done"):
+        my_systemmanager.stop_mapping()
     elif user_input.startswith("start"):
         my_systemmanager.start()
+    elif user_input.startswith("stop"):
+        my_systemmanager.stop()
     elif user_input.startswith("source"):
         # try to extract repeate_snake
         start_index = user_input.find(':')
@@ -278,6 +339,8 @@ if __name__ == '__main__':
                 "\n" +
                 42*'*' + "\n"
                 "commands: \n"
+                "  'map': start mapping mode \n"
+                "  'done': stop mapping mode \n"
                 "  'start': start copy mode \n"
                 "  'stop': stop copy mode \n"
                 "  'source': update source folder "
