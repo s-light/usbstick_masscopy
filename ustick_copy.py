@@ -19,7 +19,7 @@ import argparse
 import json
 import readline
 
-from configdict import ConfigDict
+import configdict
 from usbstick import USBStick
 
 
@@ -32,7 +32,8 @@ class SystemManager(object):
         'system': {
             'update_interval': 500,
         },
-        'source_folder': ""
+        'source_folder': "",
+        'mount_base': "~/ustick_copy/",
     }
 
     path_script = os.path.dirname(os.path.abspath(__file__))
@@ -55,7 +56,7 @@ class SystemManager(object):
             filename = os.path.join(path_to_config, config_name)
 
         # read config file:
-        self.my_config = ConfigDict(self.default_config, filename)
+        self.my_config = configdict.ConfigDict(self.default_config, filename)
         # print("my_config.config: {}".format(self.my_config.config))
         self.config = self.my_config.config
         # print("config: {}".format(self.config))

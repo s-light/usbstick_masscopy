@@ -10,6 +10,8 @@ use with interactive flag:
 """
 
 import time
+import os
+import json
 
 import pyudev
 
@@ -102,6 +104,23 @@ def log_event(action, device):
             print("-"*42)
             # for prop in device.attributes:
             #     print(prop)
+            usb_port_path = device.find_parent('usb').device_path
+            head, tail = os.path.split(usb_port_path)
+            levels = tail.replace(':1.0', '').split('.')
+            # tree = {}
+            # current_level = tree
+            # for level in levels:
+            #     current_level[level] = {}
+            #     current_level = current_level[level]
+            print(levels)
+            tree = {
+                'device_path': device.device_path
+            }
+            for level in reversed(levels):
+                new_level = {}
+                new_level[level] = tree
+                tree = new_level
+
             print(
                 (
                     42*'*' + "\n"
@@ -112,6 +131,10 @@ def log_event(action, device):
                     "ID_FS_LABEL: {}\n"
                     "ID_FS_LABEL_ENC: {}\n"
                     "ID_SERIAL: {}\n"
+                    "usb_port_path: {}\n"
+                    "USB Port: {}\n"
+                    "USB Port levels: {}\n"
+                    "USB Port Tree: \n{}\n"
                 ).format(
                     device,
                     device.properties.get("ID_BUS"),
@@ -119,7 +142,16 @@ def log_event(action, device):
                     device.properties.get("DEVNAME"),
                     device.properties.get("ID_FS_LABEL"),
                     device.properties.get("ID_FS_LABEL_ENC"),
-                    device.properties.get("ID_SERIAL")
+                    device.properties.get("ID_SERIAL"),
+                    usb_port_path,
+                    tail,
+                    levels,
+                    json.dumps(
+                        tree,
+                        sort_keys=True,
+                        indent=4,
+                        separators=(',', ': ')
+                    ),
                 )
             )
             # print("properties", "-"*42)
@@ -140,3 +172,10 @@ try:
 except KeyboardInterrupt:
     print("\nstop script.")
     flag_run = False
+
+# get device:
+# device = pyudev.Devices.from_path(
+#     context,
+#     '/sys/devices/pci0000:00/0000:00:1d.0/usb2/2-1/2-1.2/2-1.2.2/2-1.2.2.4/'
+#     '2-1.2.2.4:1.0/host7/target7:0:0/7:0:0:0/block/sdc/sdc1'
+# )

@@ -4,6 +4,8 @@
 Linux python tool to mass copy data to USB sticks in an mostly automated way
 
 ## Installation / Setup
+- install additional packages  
+`$ sudo apt install pmount`
 - clone or download this repository  
 `$ git clone https://github.com/s-light/usbstick_masscopy.git`
 - navigate to newly created directory  
@@ -17,7 +19,7 @@ Linux python tool to mass copy data to USB sticks in an mostly automated way
 
 ## Usage
 - start main script with the source folder  
-`ustick_copy.py --source="~/mysource/folder"`
+`sudo python ./ustick_copy.py --source="~/mysource/folder"`
 - now there should open up your default browser with an information page  
 - on this page you can check/setup your USB-port mapping
 - now you can switch to copy mode
