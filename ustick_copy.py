@@ -11,14 +11,13 @@ USB-Sticks.
 import sys
 import os
 import time
-# import array
-# import struct
 import signal
 import argparse
 import threading
 import queue
 import json
-import readline
+# import readline
+
 import pyudev
 
 import configdict
@@ -35,6 +34,7 @@ class SystemManager(object):
         'mount_base': "~/ustick_copy/",
         'disc_label': "SOMMER",
         'port_map': {},
+        'files_to_remove': [],
         'stick_messages': [],
     }
 
@@ -276,8 +276,23 @@ class SystemManager(object):
 
 ##########################################
 
-
 ##########################################
+def get_source(user_input):
+    """Extract source_folder from user_input."""
+    start_index = user_input.find(':')
+    if start_index > -1:
+        source_folder_new = user_input[start_index+1:]
+        if os.path.exists(source_folder_new):
+            my_systemmanager.config['source_folder'] = (
+                source_folder_new
+            )
+            print("set source folder to '{}'.".format(
+                my_systemmanager.config['source_folder']
+            ))
+        else:
+            print("input not a valid path.")
+
+
 def handle_userinput(user_input):
     """Handle userinput in interactive mode."""
     global flag_run
@@ -294,42 +309,84 @@ def handle_userinput(user_input):
             print("{:>3} - {}".format(port_number, device_path))
         print("~"*42)
         my_systemmanager.stick_messages_show()
-
     elif user_input.startswith("start"):
         my_systemmanager.start_copy()
     elif user_input.startswith("stop"):
         my_systemmanager.stop_copy()
     elif user_input.startswith("source"):
-        # try to extract repeate_snake
-        start_index = user_input.find(':')
-        if start_index > -1:
-            source_folder_new = user_input[start_index+1:]
-            if os.path.exists(source_folder_new):
-                my_systemmanager.config['source_folder'] = (
-                    source_folder_new
-                )
-                print("set source folder to '{}'.".format(
-                    my_systemmanager.config['source_folder']
-                ))
-            else:
-                print("input not a valid path.")
+        get_source(user_input)
     elif user_input.startswith("sc"):
         # try to extract universe value
             print("\nwrite config.")
             my_systemmanager.my_config.write_to_file()
 
 
-##########################################
-if __name__ == '__main__':
+def handle_interactive():
+    """Handle interactive session."""
+    flag_run = True
+    message = (
+        "\n" +
+        42*'*' + "\n"
+        "commands: \n"
+        "  'map': start mapping mode \n"
+        "  'done': stop mapping mode \n"
+        "  'show': show port mapping \n"
+        "  'start': start copy mode \n"
+        "  'stop': stop copy mode \n"
+        "  'source': update source folder "
+        "'source:~/StickDataToCopy/'\n"
+        "  'sc': save config 'sc'\n"
+        "Ctrl+C or 'q' to stop script\n" +
+        42*'*' + "\n"
+        "\n"
+    ).format(
+        # update_frequency=(
+        #     1000.0/my_systemmanager.config['system']['update_interval']
+        # ),
+    )
+    try:
+        if sys.version_info.major >= 3:
+            # python3
+            user_input = input(message)
+        # elif sys.version_info.major == 2:
+        #     # python2
+        #     user_input = raw_input(message)
+        else:
+            # no input methode found.
+            user_input = "q"
+    except KeyboardInterrupt:
+        print("\nstop script.")
+        flag_run = False
+    except EOFError:
+        print("\nstop script.")
+        flag_run = False
+    except Exception as e:
+        print("unknown error: {}".format(e))
+        flag_run = False
+        print("stop script.")
+    else:
+        try:
+            if len(user_input) > 0:
+                handle_userinput(user_input)
+        except Exception as e:
+            print("unknown error: {}".format(e))
+            flag_run = False
+            print("stop script.")
+    return flag_run
 
-    print(42*'*')
-    print('Python Version: ' + sys.version)
-    print(42*'*')
 
+def handle_interactive_session():
+    """Handle interactive session."""
+    # wait for user to hit key.
+    flag_run = True
+    while flag_run:
+        flag_run = handle_interactive()
+
+
+def setup_config_parser():
+    """Setup config parser arguments."""
     ##########################################
     # commandline arguments
-    config_default = "./config.json"
-    source_default = "~/myfiles"
 
     parser = argparse.ArgumentParser(
         description="copy source files to multiple USB-Sticks"
@@ -362,7 +419,20 @@ if __name__ == '__main__':
         help="show advanced log information",
         action="store_true"
     )
-    args = parser.parse_args()
+    return parser.parse_args()
+
+
+##########################################
+if __name__ == '__main__':
+
+    print(42*'*')
+    print('Python Version: ' + sys.version)
+    print(42*'*')
+
+    config_default = "./config.json"
+    source_default = "~/myfiles"
+
+    args = setup_config_parser()
 
     ##########################################
     # prepare:
@@ -370,9 +440,6 @@ if __name__ == '__main__':
         print(42*'*')
         print(__doc__)
         print(42*'*')
-
-    # init flag_run
-    flag_run = False
 
     # helper
     def _exit_helper(signal, frame):
@@ -393,57 +460,7 @@ if __name__ == '__main__':
 
     if args.interactive:
         # wait for user to hit key.
-        flag_run = True
-        while flag_run:
-
-            message = (
-                "\n" +
-                42*'*' + "\n"
-                "commands: \n"
-                "  'map': start mapping mode \n"
-                "  'done': stop mapping mode \n"
-                "  'show': show port mapping \n"
-                "  'start': start copy mode \n"
-                "  'stop': stop copy mode \n"
-                "  'source': update source folder "
-                "'source:~/StickDataToCopy/'\n"
-                "  'sc': save config 'sc'\n"
-                "Ctrl+C or 'q' to stop script\n" +
-                42*'*' + "\n"
-                "\n"
-            ).format(
-                # update_frequency=(
-                #     1000.0/my_systemmanager.config['system']['update_interval']
-                # ),
-            )
-            try:
-                if sys.version_info.major >= 3:
-                    # python3
-                    user_input = input(message)
-                elif sys.version_info.major == 2:
-                    # python2
-                    user_input = raw_input(message)
-                else:
-                    # no input methode found.
-                    value = "q"
-            except KeyboardInterrupt:
-                print("\nstop script.")
-                flag_run = False
-            except EOFError:
-                print("\nstop script.")
-                flag_run = False
-            except Exception as e:
-                print("unknown error: {}".format(e))
-                flag_run = False
-                print("stop script.")
-            else:
-                try:
-                    if len(user_input) > 0:
-                        handle_userinput(user_input)
-                except Exception as e:
-                    print("unknown error: {}".format(e))
-                    flag_run = False
-                    print("stop script.")
+        handle_interactive()
     # if not interactive
     else:
         # just wait
