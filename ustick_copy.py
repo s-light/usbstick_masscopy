@@ -30,12 +30,9 @@ class SystemManager(object):
     """docstring for SystemManager."""
 
     default_config = {
-        'source_folder': "~/StickDataToCopy/",
-        'mount_base': "~/ustick_copy/",
-        'disc_label': "SOMMER",
+        'stick_config': {},
         'port_map': {},
-        'files_to_remove': [],
-        'stick_messages': [],
+        'only_copy_to_mapped_ports': False,
     }
 
     path_script = os.path.dirname(os.path.abspath(__file__))
@@ -86,8 +83,6 @@ class SystemManager(object):
             self._even_partition
         )
 
-        self.port_map = self.config['port_map']
-
         self.mode = None
 
         self.stick_dict = {}
@@ -98,9 +93,9 @@ class SystemManager(object):
         )
 
         self.queue_sticks = queue.Queue()
-        # self.stick_messages = self.config['stick_messages']
         self.stick_messages = {}
-        for device_path, port_number in self.port_map.items():
+        # init stick_messages with '?'
+        for device_path, port_number in self.config['port_map'].items():
             self.stick_messages[port_number] = '?'
         self.stick_messages_thread = threading.Thread(
             target=self.stick_messages_handler
@@ -135,6 +130,8 @@ class SystemManager(object):
             if stick.is_alive():
                 stick.join()
         print("stopped system from {} mode".format(self.mode))
+        if self.mode == 'mapping':
+            self.show_mapping()
         self.mode = None
 
     def _even_partition(self, action, device):
@@ -162,31 +159,27 @@ class SystemManager(object):
             # queue_item is valid so we handle it:
             action, device_path = queue_item
             if action == 'add':
-
-                # default_config = {
-                #     'source_folder': "~/StickDataToCopy/",
-                #     'mount_base': "~/ustick_copy/",
-                #     'disc_label': "NEWLABEL",
-                #     'port_map': {},
-                # }
                 config = {}
-                config['disc_label'] = self.config['disc_label']
-                config['port_map'] = self.port_map
+                config = self.config['stick_config']
                 new_stick = USBStick(device_path, config, self.queue_sticks)
                 self.stick_dict[device_path] = new_stick
                 if self.mode == 'copy':
                     new_stick.start()
                 elif self.mode == 'mapping':
                     port_path = new_stick.get_usb_port_path()
-                    if port_path not in self.port_map:
-                        self.port_map[port_path] = len(self.port_map)
-                        print("new port: {}".format(self.port_map[port_path]))
+                    port_map = self.config['port_map']
+                    if port_path not in self.config['port_map']:
+                        port_map[port_path] = len(port_map)
+                        print("new port: {}".format(port_map[port_path]))
+                        self.queue_sticks.put(
+                            (self.stick_dict[device_path].usb_port_path, ':-)')
+                        )
                 else:
                     print("unknown mode: {}".format(self.mode))
             elif action == 'remove':
                 if device_path in self.stick_dict:
                     self.queue_sticks.put(
-                        (self.stick_dict[device_path].port_number, '-')
+                        (self.stick_dict[device_path].usb_port_path, '-')
                     )
                     if self.stick_dict[device_path].is_alive():
                         print(
@@ -216,15 +209,11 @@ class SystemManager(object):
         else:
             print('system is allready running. stop first.')
 
-    def stop_copy(self):
-        """Stop automatic copy mode."""
-        self.stop()
-
     def start_mapping(self):
         """Start mapping mode."""
         if self.mode is None:
             # clean up
-            self.port_map = {}
+            self.config['port_map'] = {}
             self.stick_messages = {}
             self.queue_sticks.put('')
             self.mode = 'mapping'
@@ -232,18 +221,25 @@ class SystemManager(object):
         else:
             print('system is allready running. stop first.')
 
-    def stop_mapping(self):
-        """Stop mapping mode."""
-        self.stop()
+    def show_mapping(self):
+        """Print port mapping."""
         print("port_map:")
-        for device_path, port_number in self.port_map.items():
+        for device_path, port_number in self.config['port_map'].items():
             print("{:>3} - {}".format(port_number, device_path))
             self.stick_messages[port_number] = '-'
         print("~"*42)
         # store port mapping in config
-        self.config['port_map'] = self.port_map
-        self.config['stick_messages'] = self.stick_messages
+        # this should allready work.
         self.queue_sticks.put('')
+
+    def show_port_mapping(self):
+        """Show Prot Mapping."""
+        print("port_map:")
+        port_map = self.config['port_map']
+        for device_path, port_number in port_map.items():
+            print("{:>3} - {}".format(port_number, device_path))
+        print("~"*42)
+        self.stick_messages_show()
 
     def stick_messages_show(self):
         """Show messages for all sticks."""
@@ -262,14 +258,16 @@ class SystemManager(object):
         while True:
             queue_item = self.queue_sticks.get()
             # print(queue_item)
-            print("queue_item received")
+            # print("queue_item received: '{}'".format(queue_item))
             if queue_item is None:
                 break
             elif isinstance(queue_item, tuple):
                 # queue_item is valid so we handle it:
-                port_number, message = queue_item
-                if port_number >= 0:
-                    self.stick_messages[port_number] = message
+                port_path, message = queue_item
+                if port_path:
+                    if port_path in self.config['port_map']:
+                        port_number = self.config['port_map'][port_path]
+                        self.stick_messages[port_number] = message
             self.stick_messages_show()
         print("stick_messages_handler thread stopped.")
 
@@ -283,42 +281,57 @@ def get_source(user_input):
     if start_index > -1:
         source_folder_new = user_input[start_index+1:]
         if os.path.exists(source_folder_new):
-            my_systemmanager.config['source_folder'] = (
+            my_systemmanager.config['stick_config']['source_folder'] = (
                 source_folder_new
             )
             print("set source folder to '{}'.".format(
-                my_systemmanager.config['source_folder']
+                my_systemmanager.config['stick_config']['source_folder']
             ))
         else:
             print("input not a valid path.")
 
 
+def get_label(user_input):
+    """Extract label from user_input."""
+    start_index = user_input.find(':')
+    if start_index > -1:
+        disc_label_new = user_input[start_index+1:]
+        if 1 < len(disc_label_new) <= 11:
+            my_systemmanager.config['stick_config']['disc_label'] = (
+                disc_label_new
+            )
+            print("set disc label to '{}'.".format(
+                my_systemmanager.config['stick_config']['disc_label']
+            ))
+        else:
+            print("input not a valid label.")
+
+
 def handle_userinput(user_input):
     """Handle userinput in interactive mode."""
-    global flag_run
+    flag_run = True
     if user_input == "q":
         flag_run = False
         print("stop script.")
     elif user_input.startswith("map"):
         my_systemmanager.start_mapping()
-    elif user_input.startswith("done"):
-        my_systemmanager.stop_mapping()
-    elif user_input.startswith("show"):
-        print("port_map:")
-        for device_path, port_number in my_systemmanager.port_map.items():
-            print("{:>3} - {}".format(port_number, device_path))
-        print("~"*42)
-        my_systemmanager.stick_messages_show()
-    elif user_input.startswith("start"):
+    elif user_input.startswith("copy"):
         my_systemmanager.start_copy()
-    elif user_input.startswith("stop"):
-        my_systemmanager.stop_copy()
+    elif user_input.startswith("done"):
+        my_systemmanager.stop()
+    elif user_input.startswith("show"):
+        my_systemmanager.show_port_mapping()
     elif user_input.startswith("source"):
         get_source(user_input)
-    elif user_input.startswith("sc"):
+    elif user_input.startswith("label"):
+        get_label(user_input)
+    elif user_input.startswith("save"):
         # try to extract universe value
             print("\nwrite config.")
             my_systemmanager.my_config.write_to_file()
+    else:
+        pass
+    return flag_run
 
 
 def handle_interactive():
@@ -329,17 +342,22 @@ def handle_interactive():
         42*'*' + "\n"
         "commands: \n"
         "  'map': start mapping mode \n"
-        "  'done': stop mapping mode \n"
+        "  'copy': start copy mode \n"
+        "  'done': stop current mode \n"
         "  'show': show port mapping \n"
-        "  'start': start copy mode \n"
-        "  'stop': stop copy mode \n"
         "  'source': update source folder "
-        "'source:~/StickDataToCopy/'\n"
-        "  'sc': save config 'sc'\n"
+        "'source:{source_default}'\n"
+        "  'label': update label name in config "
+        "'label:{label}'\n"
+        "  'save': save config 'sc'\n"
         "Ctrl+C or 'q' to stop script\n" +
         42*'*' + "\n"
         "\n"
     ).format(
+        source_default=source_default,
+        label=my_systemmanager.config['stick_config'].get(
+            'disc_label', 'SOMMER'
+        ),
         # update_frequency=(
         #     1000.0/my_systemmanager.config['system']['update_interval']
         # ),
@@ -367,7 +385,7 @@ def handle_interactive():
     else:
         try:
             if len(user_input) > 0:
-                handle_userinput(user_input)
+                    flag_run = handle_userinput(user_input)
         except Exception as e:
             print("unknown error: {}".format(e))
             flag_run = False
@@ -430,7 +448,7 @@ if __name__ == '__main__':
     print(42*'*')
 
     config_default = "./config.json"
-    source_default = "~/myfiles"
+    source_default = "~/StickDataToCopy/"
 
     args = setup_config_parser()
 
@@ -456,11 +474,13 @@ if __name__ == '__main__':
     # overwritte with pattern name from comandline
     if "source" in args:
         if args.source != source_default:
-            my_systemmanager.config['source_folder'] = args.source
+            my_systemmanager.config['stick_config']['source_folder'] = (
+                args.source
+            )
 
     if args.interactive:
-        # wait for user to hit key.
-        handle_interactive()
+        # blocking untill user has flaged to quite script
+        handle_interactive_session()
     # if not interactive
     else:
         # just wait

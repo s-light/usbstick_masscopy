@@ -41,9 +41,17 @@ class USBStick(threading.Thread):
     default_config = {
         'source_folder': "~/StickDataToCopy/",
         'mount_base': "~/ustick_copy/",
-        'disc_label': "NEWLABEL",
-        'files_to_remove': [],
-        'port_map': {},
+        'disc_label': "SUN",
+        'files_to_remove': [
+            'example.file'
+        ],
+        'auto_run_steps': {
+            'format_as_fat32': False,
+            'update_label': False,
+            'copy_files_to_me': False,
+            'remove_all_meta_files': False,
+            'remove_files': False,
+        },
     }
 
     def __init__(self, device_path, config, queue=None):
@@ -68,13 +76,10 @@ class USBStick(threading.Thread):
         self.mount_point = None
         self.config = configdict.merge_deep(self.default_config, config)
 
-        # print(self.config['port_map'])
-        self.port_number = '-1'
-        if self.get_usb_port_path() in self.config['port_map']:
-            self.port_number = (
-                self.config['port_map'][self.get_usb_port_path()]
-            )
+        self.usb_port_path = self.get_usb_port_path()
+        self.usb_port_name = self.get_usb_port_name()
 
+    # usb port helper
     def get_usb_port(self):
         """Get USB-Port device."""
         return self.device.find_parent('usb')
@@ -387,26 +392,55 @@ class USBStick(threading.Thread):
         )
 
     def show_port_message(self, message):
-        """Show message for a device with port_number."""
+        """Show message for a device with port_path."""
         if self.queue:
-            # queue_item = (self.port_number, message)
+            # queue_item = (self.port_path, message)
             # print(queue_item)
             # self.queue.put(queue_item)
-            self.queue.put((self.port_number, message))
+            self.queue.put((self.usb_port_path, message))
         else:
             print("Port {}: {}".format(
-                self.port_number,
+                self.usb_port_name,
                 message
             ))
+
+    def _run_mounted(self):
+        auto_run_steps = self.config['auto_run_steps']
+        # ******************************************
+        # real work to do:
+
+        if auto_run_steps['copy_files_to_me']:
+            # copy files
+            self.show_port_message("copy")
+            self.copy_files_to_me()
+
+        if auto_run_steps['remove_all_meta_files']:
+            # remove meta files
+            self.show_port_message("rm meta")
+            self.remove_all_meta_files()
+
+        if auto_run_steps['remove_files']:
+            # remove files in rm_files_list
+            self.show_port_message("rm files")
+            self.remove_files()
+
+        # ******************************************
 
     # thread runner
     def run(self):
         """Auto perform Stick programming."""
+        auto_run_steps = self.config['auto_run_steps']
         self.show_port_message("start")
         try:
-            # update label
-            # self.update_label()
-            pass
+            if auto_run_steps['format_as_fat32']:
+                # format_as_fat32
+                self.show_port_message("fat32")
+                self.format_as_fat32()
+
+            if auto_run_steps['update_label']:
+                # update label
+                self.show_port_message("label")
+                self.update_label()
         except Exception as e:
             raise e
         else:
@@ -418,22 +452,7 @@ class USBStick(threading.Thread):
                 raise e
             else:
                 try:
-                    # ******************************************
-                    # real work to do:
-
-                    # copy files
-                    # self.show_port_message("copy")
-                    # self.copy_files_to_me()
-
-                    # remove meta files
-                    self.show_port_message("rm meta")
-                    self.remove_all_meta_files()
-
-                    # remove files in rm_files_list
-                    # self.show_port_message("rm files")
-                    # self.remove_files()
-
-                    # ******************************************
+                    self._run_mounted()
                 except Exception as e:
                     raise e
                 finally:
