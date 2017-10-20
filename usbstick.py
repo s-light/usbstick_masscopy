@@ -264,9 +264,10 @@ class USBStick(threading.Thread):
         if label is None:
             label = self.config['disc_label']
         # mkfs -t fat -F 32 -n "world" /dev/sdb1
+        # mkfs -t fat -F 32 -n "world" /dev/sdb1
         command = [
-            "mkfs",
-            "-t fat",
+            "mkfs.fat",
+            # "-t=fat",
             "-F 32",
             "-n {}".format(label),
             "{}".format(self.mount_point),
