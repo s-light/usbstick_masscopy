@@ -10,15 +10,23 @@ this could eventually be used for fixing the label-permission problem:
 https://unix.stackexchange.com/questions/229987/udev-rule-to-match-any-usb-storage-device
 and hopefully someone posts a real solution:
 https://unix.stackexchange.com/questions/399010/change-volume-name-without-sudo-root
+
+here is a script that can manage discs with the help of shell commands
+https://stackoverflow.com/a/22454071/574981
+
+the documentation to pyudev:
+http://pyudev.readthedocs.io/en/latest/guide.html
 """
 
 import os
 import shutil
 import subprocess
 import threading
-import readline
-import configdict
+# import readline
+
 import pyudev
+
+import configdict
 
 
 class Error(Exception):
@@ -34,6 +42,7 @@ class USBStick(threading.Thread):
         'source_folder': "~/StickDataToCopy/",
         'mount_base': "~/ustick_copy/",
         'disc_label': "NEWLABEL",
+        'files_to_remove': [],
         'port_map': {},
     }
 
@@ -229,13 +238,38 @@ class USBStick(threading.Thread):
             print("stick not mounted by this scirpt.")
 
     # label things
-    def update_label(self, label):
+    def update_label(self, label=None):
         """Update the Filesystem Label."""
         # fatlabel /dev/sda1 MyNewLabel
+        if label is None:
+            label = self.config['disc_label']
         command = [
             "fatlabel",
             "{}".format(self.node),
             "{}".format(label),
+        ]
+        result_string = ""
+        try:
+            result_string += subprocess.check_output(command).decode()
+            # print("result_string", result_string)
+        except subprocess.CalledProcessError as e:
+            error_message = "failed: {}".format(e)
+            print(error_message)
+            result_string += error_message
+        return result_string
+
+    # format
+    def format_as_fat32(self, label=None):
+        """Format as fat32 and set label."""
+        if label is None:
+            label = self.config['disc_label']
+        # mkfs -t fat -F 32 -n "world" /dev/sdb1
+        command = [
+            "mkfs",
+            "-t fat",
+            "-F 32",
+            "-n {}".format(label),
+            "{}".format(self.mount_point),
         ]
         result_string = ""
         try:
@@ -300,6 +334,33 @@ class USBStick(threading.Thread):
         if errors:
             raise Error(errors)
 
+    # remove files
+    def remove_all_meta_files(self):
+        """Remove all meta files from this Stick."""
+        # based on
+        # https://docs.python.org/3/library/os.html#os.walk
+        meta_files = [
+            '.DS_Store'
+        ]
+        for root, dirs, files in os.walk(self.mount_point, topdown=False):
+            for name in files:
+                if name in meta_files:
+                    full_path = os.path.join(root, name)
+                    print("remove: {}".format(full_path))
+                    os.remove(full_path)
+
+    def remove_files(self, file_list=None):
+        """Remove Files in file_list from this Stick."""
+        if file_list is None:
+            file_list = self.config['files_to_remove']
+        for file_name in file_list:
+            full_path = os.path.join(self.mount_point, file_name)
+            try:
+                os.remove(full_path)
+                print("removed: {}".format(full_path))
+            except FileNotFoundError as e:
+                print(e)
+
     # helper
     def print_properties(self):
         """Print all properties with values for an given device."""
@@ -343,7 +404,8 @@ class USBStick(threading.Thread):
         self.show_port_message("start")
         try:
             # update label
-            self.update_label(self.config['disc_label'])
+            # self.update_label()
+            pass
         except Exception as e:
             raise e
         else:
@@ -355,8 +417,22 @@ class USBStick(threading.Thread):
                 raise e
             else:
                 try:
+                    # ******************************************
+                    # real work to do:
+
                     # copy files
-                    self.copy_files_to_me()
+                    # self.show_port_message("copy")
+                    # self.copy_files_to_me()
+
+                    # remove meta files
+                    self.show_port_message("rm meta")
+                    self.remove_all_meta_files()
+
+                    # remove files in rm_files_list
+                    # self.show_port_message("rm files")
+                    # self.remove_files()
+
+                    # ******************************************
                 except Exception as e:
                     raise e
                 finally:
