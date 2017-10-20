@@ -359,13 +359,32 @@ class USBStick(threading.Thread):
         """Remove Files in file_list from this Stick."""
         if file_list is None:
             file_list = self.config['files_to_remove']
+        errors = []
+        infos = []
         for file_name in file_list:
-            full_path = os.path.join(self.mount_point, file_name)
+            try:
+                full_path = os.path.join(self.mount_point, file_name)
+            except Exception as why:
+                info = {
+                    'mount_point': self.mount_point,
+                    'file_name': file_name,
+                }
+                errors.extend((info, str(why)))
             try:
                 os.remove(full_path)
                 print("removed: {}".format(full_path))
-            except FileNotFoundError as e:
-                print(e)
+            except FileNotFoundError as why:
+                infos.extend(why)
+            except Exception as why:
+                info = {
+                    'mount_point': self.mount_point,
+                    'file_name': file_name,
+                }
+                errors.extend((info, str(why)))
+        if infos:
+            print(infos)
+        if errors:
+            raise Error(errors)
 
     # helper
     def print_properties(self):
